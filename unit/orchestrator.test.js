@@ -47,3 +47,14 @@ test('inconclusive execution is partial and does not create empty PRs', async ()
   assert.equal(result.status,'partial');
   assert.equal(result.stages.revisor.status,'skipped');
 });
+test('new issues are fetched by returned ID even when GitHub listing is stale', async () => {
+  const outputDir=await mkdtemp(join(tmpdir(),'orchestrator-fresh-'));
+  const github={path:s=>s,all:async()=>[{number:1}],request:async(_method,path)=>({number:Number(path.split('/').at(-1)),state:'open'})};
+  const summary=await orchestrate({outputDir,publish:true,github},{
+    preflight:async()=>{},createPlan:async()=>({caseIds:['a11y-html-lang','a11y-link-name']}),
+    explore:async()=>({observations:[{status:'finding'},{status:'finding'}],findings:[{id:'a11y-html-lang'},{id:'a11y-link-name'}],issues:[{number:1},{number:2}]}),
+    automate:async options=>{assert.deepEqual(options.issues.map(i=>i.number),[1,2]);return options.issues.map(i=>({filename:`issue-${i.number}`,pr:'url'}));},
+    review:async()=>[{pr:3},{pr:4}]
+  });
+  assert.equal(summary.counts.tests,2);
+});

@@ -72,8 +72,13 @@ export async function orchestrate(options, stages = { createPlan, preflight, exp
       summary.stages.automatizador = { status: 'skipped', reason: 'Dry run: findings recorded; GitHub publication disabled' };
       summary.stages.revisor = { status: 'skipped', reason: 'No published PRs in dry run' };
     } else {
-      const issueNumbers = new Set(findings.issues.map(i => i.number));
-      const issues = (await options.github.all('/issues?state=open')).filter(i => issueNumbers.has(i.number));
+      // GitHub's list endpoint can lag behind freshly created issues. Fetch the
+      // exact IDs returned by creation rather than rediscovering them through a cached list.
+      const issues = [];
+      for (const created of findings.issues) {
+        const issue = await options.github.request('GET', options.github.path(`/issues/${created.number}`));
+        if (issue.state === 'open' && !issue.pull_request) issues.push(issue);
+      }
       const tests = await stage('automatizador', () => stages.automate({ ...options, issues }));
       summary.counts.tests = tests.filter(t => t.filename).length;
       if (tests.some(t => t.pr)) {
