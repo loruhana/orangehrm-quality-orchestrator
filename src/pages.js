@@ -43,7 +43,11 @@ export async function executeCase(page, id) {
   }
   if (id === 'login-required') {
     await login.submit.click();
-    return { actual: await page.getByText('Required', { exact: true }).count(), expected: 2 };
+    const required = page.getByText('Required', { exact: true });
+    // React/Vue rendering can finish after click resolves on a fast CI runner.
+    // Preserve the observed defect when the UI still fails to validate after the deadline.
+    await expect.poll(() => required.count(), { timeout: 5000 }).toBe(2).catch(() => {});
+    return { actual: await required.count(), expected: 2 };
   }
   if (id === 'login-invalid') {
     await login.login('audit-invalid-user', 'audit-invalid-password');
