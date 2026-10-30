@@ -1,0 +1,2 @@
+# Agente Automatizador
+Leia a issue e sua nova reprodução. Escolha caseId correspondente ao contrato observado e explique rationale. O executor gera um teste Playwright executável usando o Page Object Model em src/pages.js, com uma asserção de comportamento correto. Não use test.skip, test.fail, mocks do site real nem asserções que tratem o defeito como sucesso. A PR conterá somente o teste e referência à issue. Não invente novos casos fora do catálogo; extensões precisam de implementação e validação do oráculo.

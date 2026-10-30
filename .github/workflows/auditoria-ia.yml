@@ -1,0 +1,280 @@
+name: Auditoria IA - Orquestrador OrangeHRM
+'on':
+  workflow_dispatch:
+    inputs:
+      modulo:
+        description: Escopo dos casos implementados
+        type: choice
+        options:
+        - all
+        - Login
+        - PIM
+        - Leave
+        - Time
+        - Recruitment
+        - Performance
+        - auto
+        default: all
+      instruction:
+        description: Objetivo em linguagem natural (auto usa Codex para selecionar módulo)
+        type: string
+        default: Auditar todos os casos mapeados sem alterar registros do demo
+      provider:
+        description: codex exige OPENAI_API_KEY; rules valida infraestrutura sem IA
+        type: choice
+        options:
+        - codex
+        - rules
+        default: codex
+      publish:
+        description: Publicar achados confirmados, testes em PRs e pareceres
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: orangehrm-audit-publication
+  cancel-in-progress: false
+env:
+  AUDIT_MODULE: ${{ inputs.modulo }}
+  AUDIT_INSTRUCTION: ${{ inputs.instruction }}
+  AUDIT_PROVIDER: ${{ inputs.provider }}
+  AUDIT_PUBLISH: ${{ inputs.publish }}
+  GITHUB_REPOSITORY: ${{ github.repository }}
+jobs:
+  orquestrador:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+    - &id001
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.repository.default_branch }}
+        persist-credentials: false
+    - &id002
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: npm
+    - run: npm ci
+    - &id003
+      name: Autenticar Codex somente no job de análise
+      if: inputs.provider == 'codex'
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      run: 'test -n "$OPENAI_API_KEY" || { echo "Configure OPENAI_API_KEY ou selecione provider=rules (sem IA)."; exit 1;
+        }
+
+        printf ''%s'' "$OPENAI_API_KEY" | npx codex login --with-api-key'
+    - name: Executar orquestrador
+      id: execute
+      run: node src/ci-stage.js orquestrador
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: audit-orquestrador
+        path: audit-output/
+        retention-days: 14
+        if-no-files-found: warn
+  explorador:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+    - *id001
+    - *id002
+    - run: npm ci
+    - &id004
+      uses: actions/download-artifact@v4
+      with: &id005
+        pattern: audit-*
+        path: audit-output
+        merge-multiple: true
+    - run: npx playwright install --with-deps chromium
+    - *id003
+    - name: Executar explorador
+      id: execute
+      run: node src/ci-stage.js explorador
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: audit-explorador
+        path: audit-output/
+        retention-days: 14
+        if-no-files-found: warn
+    needs:
+    - orquestrador
+    outputs:
+      confirmed: ${{ steps.execute.outputs.confirmed }}
+  publicar-issues:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write
+    steps:
+    - *id001
+    - *id002
+    - run: npm ci
+    - *id004
+    - name: Executar publicar-issues
+      id: execute
+      run: node src/ci-stage.js publicar-issues
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: audit-publicar-issues
+        path: audit-output/
+        retention-days: 14
+        if-no-files-found: warn
+    needs:
+    - orquestrador
+    - explorador
+    if: ${{ inputs.publish && needs.explorador.outputs.confirmed != '0' && needs.explorador.outputs.confirmed != '' }}
+    outputs:
+      count: ${{ steps.execute.outputs.count }}
+  automatizador:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+    - *id001
+    - *id002
+    - run: npm ci
+    - *id004
+    - run: npx playwright install --with-deps chromium
+    - *id003
+    - name: Executar automatizador
+      id: execute
+      run: node src/ci-stage.js automatizador
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: audit-automatizador
+        path: audit-output/
+        retention-days: 14
+        if-no-files-found: warn
+    needs:
+    - publicar-issues
+    if: ${{ needs.publicar-issues.outputs.count != '0' && needs.publicar-issues.outputs.count != '' }}
+    outputs:
+      count: ${{ steps.execute.outputs.count }}
+  publicar-prs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+    steps:
+    - *id001
+    - *id002
+    - run: npm ci
+    - *id004
+    - name: Executar publicar-prs
+      id: execute
+      run: node src/ci-stage.js publicar-prs
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: audit-publicar-prs
+        path: audit-output/
+        retention-days: 14
+        if-no-files-found: warn
+    needs:
+    - automatizador
+    if: ${{ needs.automatizador.outputs.count != '0' && needs.automatizador.outputs.count != '' }}
+    outputs:
+      count: ${{ steps.execute.outputs.count }}
+  revisor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+    - *id001
+    - *id002
+    - run: npm ci
+    - *id004
+    - run: npx playwright install --with-deps chromium
+    - *id003
+    - name: Executar revisor
+      id: execute
+      run: node src/ci-stage.js revisor
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: audit-revisor
+        path: audit-output/
+        retention-days: 14
+        if-no-files-found: warn
+    needs:
+    - publicar-prs
+    if: ${{ needs.publicar-prs.outputs.count != '0' && needs.publicar-prs.outputs.count != '' }}
+  publicar-revisoes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    steps:
+    - *id001
+    - *id002
+    - run: npm ci
+    - *id004
+    - name: Executar publicar-revisoes
+      id: execute
+      run: node src/ci-stage.js publicar-revisoes
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: audit-publicar-revisoes
+        path: audit-output/
+        retention-days: 14
+        if-no-files-found: warn
+    needs:
+    - revisor
+  relatorio:
+    needs:
+    - orquestrador
+    - explorador
+    - publicar-issues
+    - automatizador
+    - publicar-prs
+    - revisor
+    - publicar-revisoes
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - *id001
+    - *id002
+    - run: npm ci
+    - uses: actions/download-artifact@v4
+      with: *id005
+      continue-on-error: true
+    - run: node src/ci-stage.js relatorio
+      env:
+        JOB_RESULTS: ${{ toJSON(needs) }}
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: relatorio-final
+        path: audit-output/
+        retention-days: 14

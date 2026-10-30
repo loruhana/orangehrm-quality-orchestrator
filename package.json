@@ -1,0 +1,29 @@
+{
+  "name": "orangehrm-quality-orchestrator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Auditoria OrangeHRM com quatro agentes Codex, orquestração, evidências e testes agendados",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test unit/*.test.js",
+    "test:e2e": "playwright test",
+    "test:live": "playwright test tests/smoke.spec.js",
+    "audit": "node src/cli.js pipeline --authorized",
+    "automate": "node src/ci-stage.js automatizador",
+    "review": "node src/ci-stage.js revisor",
+    "pipeline": "node src/cli.js pipeline",
+    "doctor": "node src/cli.js plan --authorized --module Login",
+    "demo": "node scripts/demo.js",
+    "plan": "node src/cli.js plan",
+    "test:mapped": "playwright test tests/mapped.spec.js",
+    "report": "node src/ci-stage.js relatorio"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@openai/codex": "0.165.0",
+    "@playwright/test": "1.64.1"
+  }
+}

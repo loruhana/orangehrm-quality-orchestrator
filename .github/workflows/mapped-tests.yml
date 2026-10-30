@@ -1,0 +1,41 @@
+name: Todos os testes - 08h30 e 16h00 BRT
+on:
+  schedule:
+    - cron: '30 11 * * *' # 08:30 America/Sao_Paulo (UTC-3)
+    - cron: '0 19 * * *'  # 16:00 America/Sao_Paulo (UTC-3)
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: mapped-tests
+  cancel-in-progress: false
+jobs:
+  todos-os-casos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Executar todos os casos mapeados
+        run: npm run test:mapped -- --reporter=list,html,json
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: audit-output/mapped-results.json
+      - name: Resumo independente do resultado
+        if: always()
+        run: node scripts/summarize-suite.js
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: todos-os-casos-${{ github.run_number }}
+          path: |
+            audit-output/
+            playwright-report/
+            test-results/
+          retention-days: 14
